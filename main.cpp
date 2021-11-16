@@ -403,6 +403,9 @@ int main()
     mode.actualMode = IDLE;
     mode.isUsed = 0;
 
+    servo.angulo = 0;
+    manejadorServo();
+
     while(true)
     {
         if ((miTimer.read_ms()-ourButton.lastTime)>=ourButton.inerval)
@@ -428,8 +431,8 @@ int main()
             sensorIR.valueIRIzq = 0;
             sensorIR.valueIRDer = 0;
             // if (sensorIR.isUsed){
-                sensorIR.valueIRIzq = IRSensorIzq.read_u16();
-                sensorIR.valueIRDer = IRSensorDer.read_u16();
+                sensorIR.valueIRIzq = IRSensorIzq.read_u16()/100;
+                sensorIR.valueIRDer = IRSensorDer.read_u16()/100;
                 encodeData(IR_SENSOR);
             // }
         }
@@ -447,13 +450,13 @@ int main()
             }
         }
 
-        if(servo.isUsed)
-        {
-            if ((miTimer.read_ms()-servo.time)>=servo.interval)
-            {
-                manejadorServo();
-            }
-        }
+        // if(servo.isUsed)
+        // {
+        //     if ((miTimer.read_ms()-servo.time)>=servo.interval)
+        //     {
+        //         manejadorServo();
+        //     }
+        // }
 
         if ((miTimer.read_ms()-ultraS.timer)>=ultraS.interval)
         {
@@ -478,6 +481,8 @@ int main()
 
         if (mode.isUsed)
         {
+            uint16_t pulsoFast;
+            uint16_t pulsoSlow;
             switch (mode.actualMode)
             {
             case MODE1: //Modo de seguimiento del obstaculo
@@ -487,17 +492,22 @@ int main()
                     servo.angulo = 0;
                     manejadorServo();
                 }
-
-                if (ultraS.echoTimeFall > 377)  //Si el obstaculo se aleja de 6.5
+                pulsoFast = 400;
+                if (ultraS.echoTimeFall > 1000){    //Si el obstaculo se encuentra a mas de 17
+                    IN1 = LOW;
+                    IN2 = LOW;
+                    IN3 = LOW;
+                    IN4 = LOW;
+                }else if (ultraS.echoTimeFall > 406)  //Si el obstaculo se aleja de 7
                 {
                     motor.select = 0x11;
                     motor.sentido = 0x10;
-                    manejadorMotor(750);
-                }else if (ultraS.echoTimeFall < 319)    //Si el obstaculo se acarca a 5.5
+                    manejadorMotor(pulsoFast);
+                }else if (ultraS.echoTimeFall < 290)    //Si el obstaculo se acarca a 5
                 {
                     motor.select = 0x11;
                     motor.sentido = 0x01;
-                    manejadorMotor(750);
+                    manejadorMotor(pulsoFast);
                 }else   //No hacer nada
                 {
                     IN1 = LOW;
@@ -505,27 +515,44 @@ int main()
                     IN3 = LOW;
                     IN4 = LOW;
                 }
-                
                 break;
             
             case MODE2:
-
-                if (sensorIR.valueIRDer < 10000){
-                    //Girar a la izquierda
+                pulsoFast = 350;
+                pulsoSlow = 300;
+                
+                if (horquilla.speedM1 <= 0){
                     motor.select = 0x10;
                     motor.sentido = 0x10;
-                    manejadorMotor(500);
-                }else if (sensorIR.valueIRIzq < 10000)
-                {
-                    //Girar a la derecha
+                    manejadorMotor(400);
+                }
+                if (horquilla.speedM2 <= 0){
                     motor.select = 0x01;
                     motor.sentido = 0x10;
-                    manejadorMotor(500);
+                    manejadorMotor(400);
+                }
+
+                if (ultraS.echoTimeFall < 406){
+                    IN1 = LOW;
+                    IN2 = LOW;
+                    IN3 = LOW;
+                    IN4 = LOW;
+                }else if (sensorIR.valueIRDer > 110){
+                    //Girar a la izquierda
+                    motor.select = 0x01;
+                    motor.sentido = 0x10;
+                    manejadorMotor(pulsoSlow);
+                }else if (sensorIR.valueIRIzq < 110)
+                {
+                    //Girar a la derecha
+                    motor.select = 0x10;
+                    motor.sentido = 0x10;
+                    manejadorMotor(pulsoSlow);
                 }else{
                     //Mover recto
                     motor.select = 0x11;
                     motor.sentido = 0x10;
-                    manejadorMotor(750);
+                    manejadorMotor(pulsoFast);
                 }
                 
                 break;
@@ -575,6 +602,7 @@ void echoProcces(void){
 }
 
 void manejadorMotor(uint16_t pulso){
+    
     switch (motor.select)
     {
     case mDer:
@@ -754,7 +782,7 @@ void setModes(void){
         {
             //Salgo de la ejecucion
             mode.isUsed = 0;
-
+            mode.actualMode = IDLE;
             IN1 = LOW;
             IN2 = LOW;
             IN3 = LOW;
