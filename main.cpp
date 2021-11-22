@@ -294,10 +294,10 @@ InterruptIn HorquillaIzq(PB_9);
 /*****************************************************************************************************/
 /************  Función Principal ***********************/
 typedef struct{
-    bool isUsed=0;      //Habilita el llamado a la funcion manejarServo-
-    int8_t angulo;      //Angulo que llega desde PC
-    int time;           //Ultimo tiempo de accion
-    uint8_t interval;   //Intervalo de accion
+    bool isUsed=0;                      //Habilita el llamado a la funcion manejarServo-
+    int8_t angulo;                      //Angulo que llega desde PC
+    int time;                           //Ultimo tiempo de accion
+    uint16_t interval=400;               //Intervalo de accion
 }_sServo;
 _sServo servo;
 
@@ -319,20 +319,20 @@ typedef enum{
 }_eMotor;
 
 typedef struct {
-    bool isUsed=0;      //Habilita el llamado a la funcion manejorMotor
-    uint8_t select;     //Motor 0=Derecha - FF=Izquierda
-    uint8_t sentido;    //Direccion de giro 0=Adelante - FF=Atras
-    uint16_t interval;  //Intervalo de movieminto
-    int timer;          //Setea el momento de inicio el intervalo
+    bool isUsed=0;                      //Habilita el llamado a la funcion manejorMotor
+    uint8_t select;                     //Motor 0=Derecha - FF=Izquierda
+    uint8_t sentido;                    //Direccion de giro 0=Adelante - FF=Atras
+    uint16_t interval;                  //Intervalo de movieminto
+    int timer;                          //Setea el momento de inicio el intervalo
 }_sMotor;
 _sMotor motor;
 
 typedef struct{
     bool isUsed=0;
-    volatile uint32_t speedM1=0;    //Motor Izquierdo
-    volatile uint32_t speedM2=0;    //Motor Derecho
-    uint16_t interval;              //Intervalo de movieminto
-    int timer;                      //Setea el momento de inicio el intervalo
+    volatile uint32_t speedM1=0;        //Motor Izquierdo
+    volatile uint32_t speedM2=0;        //Motor Derecho
+    uint16_t interval=500;              //Intervalo de movieminto
+    int timer;                          //Setea el momento de inicio el intervalo
 }_sHorquilla;
 _sHorquilla horquilla;
 
@@ -341,7 +341,7 @@ typedef struct {
     uint16_t valueIRIzq;
     uint16_t valueIRDer;
     int timer;
-    uint16_t interval;
+    uint16_t interval=100;
 }_sIRSensor;
 _sIRSensor sensorIR;
 
@@ -353,15 +353,20 @@ typedef enum{
 }_eMode;
 
 typedef struct{
-    bool isUsed=0;              //0 no hay modo en ejecucion ---- 1 hay modo en ejecucion
-    uint8_t actualMode;         //Modo seleccionado actualmente
+    bool isUsed=0;                      //0 no hay modo en ejecucion ---- 1 hay modo en ejecucion
+    uint8_t actualMode;                 //Modo seleccionado actualmente
     int lastTime;
     uint8_t ledEvent;
 }_sModos;
 _sModos mode;
 
+typedef struct{
+    bool giroServo=0;                     //0 contador ascendente ---- 1 contador descendente
+}_sModo1;
+_sModo1 modo1;
 
-uint8_t firmwareVer = 0x15;
+
+uint8_t firmwareVer = 0x16;
 
 int main()
 {
@@ -383,13 +388,11 @@ int main()
     HorquillaDer.rise(&contHorquillaDer);
     HorquillaIzq.rise(&contHorquillaIzq);
     horquilla.timer = miTimer.read_ms();
-    horquilla.interval = 500;
 
     MotorDer.period_us(1000);
     MotorIzq.period_us(1000);
 
     IRSensorDer.read_u16();
-    sensorIR.interval=100;
     sensorIR.timer=miTimer.read_ms();
 
     startMef();
@@ -448,17 +451,17 @@ int main()
             }
         }
 
-        if(servo.isUsed)
-        {
-            servo.isUsed=0;
-            manejadorServo();
-            // if ((miTimer.read_ms()-servo.time)>=servo.interval)
-            // {
-            //     servo.isUsed=0;
-            //     servo.angulo = 0;
-            //     manejadorServo();
-            // }
-        }
+        // if(servo.isUsed)
+        // {
+        //     servo.isUsed=0;
+        //     manejadorServo();
+        //     if ((miTimer.read_ms()-servo.time)>=servo.interval)
+        //     {
+        //         servo.isUsed=0;
+        //         servo.angulo = 0;
+        //         manejadorServo();
+        //     }
+        // }
 
         if ((miTimer.read_ms()-ultraS.timer)>=ultraS.interval)
         {
@@ -485,37 +488,63 @@ int main()
         {
             uint16_t pulsoFast;
             uint16_t pulsoSlow;
-            switch (mode.actualMode)
-            {
+            switch (mode.actualMode){
             case MODE1: //Modo de seguimiento del obstaculo
-                
-                if (servo.isUsed){
-                    servo.isUsed=0;
-                    servo.angulo = 0;
-                    manejadorServo();
-                }
-
-                // pulsoFast = 370;
-                pulsoFast = 250;
-                if (ultraS.echoTimeFall > 1000){    //Si el obstaculo se encuentra a mas de 17
+        
+                pulsoFast = 350;
+                pulsoSlow = 350;
+                // pulsoFast = 300;
+                if ((ultraS.echoTimeFall > 1450)){    //Si el obstaculo se encuentra a mas de 17
                     IN1 = LOW;
                     IN2 = LOW;
                     IN3 = LOW;
                     IN4 = LOW;
-                    servo.isUsed = 1;
                     
-                }else if (ultraS.echoTimeFall > 406)  //Si el obstaculo se aleja de 7
+                    if ((miTimer.read_ms()-servo.time)>=servo.interval){
+                        servo.time = miTimer.read_ms();
+
+                        if (servo.angulo >= 90)
+                            modo1.giroServo = 1;
+                        else if (servo.angulo <= -90)
+                            modo1.giroServo = 0;
+
+                        if (modo1.giroServo)
+                            servo.angulo -= 45;
+                        else
+                            servo.angulo += 45;
+
+                        manejadorServo();
+                    }
+                }else if (ultraS.echoTimeFall > 440)  //Si el obstaculo se aleja de 7
                 {
-                    motor.select = 0x11;
-                    motor.sentido = 0x10;
-                    manejadorMotor(pulsoFast);
-                }else if (ultraS.echoTimeFall < 290)    //Si el obstaculo se acarca a 5
-                {
+                    if (servo.angulo < 0){
+                        motor.select = 0x01;
+                        motor.sentido = 0x01;
+                        manejadorMotor(pulsoSlow);
+                        
+                        motor.select = 0x10;
+                        motor.sentido = 0x10;
+                        manejadorMotor(pulsoSlow);
+                    }else if (servo.angulo > 0){
+                        motor.select = 0x01;
+                        motor.sentido = 0x10;
+                        manejadorMotor(pulsoSlow);
+                        
+                        motor.select = 0x10;
+                        motor.sentido = 0x01;
+                        manejadorMotor(pulsoSlow);
+                    }else{
+                        motor.select = 0x11;
+                        motor.sentido = 0x10;
+                        manejadorMotor(pulsoFast);
+                        
+                    }
+                    
+                }else if (ultraS.echoTimeFall < 319){    //Si el obstaculo se acarca a 5
                     motor.select = 0x11;
                     motor.sentido = 0x01;
                     manejadorMotor(pulsoFast);
-                }else   //No hacer nada
-                {
+                }else{                                  //No hacer nada
                     IN1 = LOW;
                     IN2 = LOW;
                     IN3 = LOW;
@@ -610,7 +639,7 @@ void actuallizaMef(void){
 
 void manejadorServo(void){
     Servo.period_ms(20);
-    Servo.pulsewidth_us((1500+((servo.angulo*1000)/128)));
+    Servo.pulsewidth_us((1500+((servo.angulo*1000)/126)));
     // servo.isUsed = 0;
     
     // Servo.pulsewidth_us(1000);
@@ -1002,7 +1031,7 @@ void decodeData(void)
             //motor.interval = 2000;
             motor.timer=miTimer.read_ms();
             
-            manejadorMotor(1000);
+            manejadorMotor(500);
             break;
 
         case SERVO_ACTION:
