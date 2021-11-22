@@ -354,14 +354,14 @@ typedef enum{
 
 typedef struct{
     bool isUsed=0;              //0 no hay modo en ejecucion ---- 1 hay modo en ejecucion
-    uint8_t actualMode;    //Modo seleccionado actualmente
+    uint8_t actualMode;         //Modo seleccionado actualmente
     int lastTime;
     uint8_t ledEvent;
 }_sModos;
 _sModos mode;
 
 
-uint8_t firmwareVer = 0x13;
+uint8_t firmwareVer = 0x15;
 
 int main()
 {
@@ -383,6 +383,7 @@ int main()
     HorquillaDer.rise(&contHorquillaDer);
     HorquillaIzq.rise(&contHorquillaIzq);
     horquilla.timer = miTimer.read_ms();
+    horquilla.interval = 500;
 
     MotorDer.period_us(1000);
     MotorIzq.period_us(1000);
@@ -428,13 +429,10 @@ int main()
         if ((miTimer.read_ms()-sensorIR.timer)>=sensorIR.interval)
         {
             sensorIR.timer = miTimer.read_ms();
-            sensorIR.valueIRIzq = 0;
-            sensorIR.valueIRDer = 0;
-            // if (sensorIR.isUsed){
-                sensorIR.valueIRIzq = IRSensorIzq.read_u16()/100;
-                sensorIR.valueIRDer = IRSensorDer.read_u16()/100;
-                encodeData(IR_SENSOR);
-            // }
+            
+            sensorIR.valueIRIzq = IRSensorIzq.read_u16()/100;
+            sensorIR.valueIRDer = IRSensorDer.read_u16()/100;
+            encodeData(IR_SENSOR);
         }
 
         if (motor.isUsed)
@@ -450,13 +448,17 @@ int main()
             }
         }
 
-        // if(servo.isUsed)
-        // {
-        //     if ((miTimer.read_ms()-servo.time)>=servo.interval)
-        //     {
-        //         manejadorServo();
-        //     }
-        // }
+        if(servo.isUsed)
+        {
+            servo.isUsed=0;
+            manejadorServo();
+            // if ((miTimer.read_ms()-servo.time)>=servo.interval)
+            // {
+            //     servo.isUsed=0;
+            //     servo.angulo = 0;
+            //     manejadorServo();
+            // }
+        }
 
         if ((miTimer.read_ms()-ultraS.timer)>=ultraS.interval)
         {
@@ -472,14 +474,14 @@ int main()
         if ((miTimer.read_ms()-horquilla.timer)>=horquilla.interval)
         {
             horquilla.timer = miTimer.read_ms();
-            if (horquilla.isUsed){
+            // if (horquilla.isUsed){
                 encodeData(HORQUILLA);
+            // }
                 horquilla.speedM1 = 0;
                 horquilla.speedM2 = 0;
-            }
         }        
 
-        if (mode.isUsed)
+        if (mode.isUsed) //Seteo de modos
         {
             uint16_t pulsoFast;
             uint16_t pulsoSlow;
@@ -492,12 +494,16 @@ int main()
                     servo.angulo = 0;
                     manejadorServo();
                 }
-                pulsoFast = 400;
+
+                // pulsoFast = 370;
+                pulsoFast = 250;
                 if (ultraS.echoTimeFall > 1000){    //Si el obstaculo se encuentra a mas de 17
                     IN1 = LOW;
                     IN2 = LOW;
                     IN3 = LOW;
                     IN4 = LOW;
+                    servo.isUsed = 1;
+                    
                 }else if (ultraS.echoTimeFall > 406)  //Si el obstaculo se aleja de 7
                 {
                     motor.select = 0x11;
@@ -519,30 +525,19 @@ int main()
             
             case MODE2:
                 pulsoFast = 350;
-                pulsoSlow = 300;
-                
-                if (horquilla.speedM1 <= 0){
-                    motor.select = 0x10;
-                    motor.sentido = 0x10;
-                    manejadorMotor(400);
-                }
-                if (horquilla.speedM2 <= 0){
-                    motor.select = 0x01;
-                    motor.sentido = 0x10;
-                    manejadorMotor(400);
-                }
+                pulsoSlow = 0;
 
                 if (ultraS.echoTimeFall < 406){
                     IN1 = LOW;
                     IN2 = LOW;
                     IN3 = LOW;
                     IN4 = LOW;
-                }else if (sensorIR.valueIRDer > 110){
+                }else if (sensorIR.valueIRDer > 100){
                     //Girar a la izquierda
                     motor.select = 0x01;
                     motor.sentido = 0x10;
                     manejadorMotor(pulsoSlow);
-                }else if (sensorIR.valueIRIzq < 110)
+                }else if (sensorIR.valueIRIzq > 100)
                 {
                     //Girar a la derecha
                     motor.select = 0x10;
@@ -570,6 +565,47 @@ int main()
             sendData();
     }
     return 0;
+}
+
+void startMef(void){
+   ourButton.estado=BUTTON_UP;
+}
+
+void actuallizaMef(void){
+    switch (ourButton.estado)
+    {
+    case BUTTON_DOWN:
+        if(ourButton.event)
+           ourButton.estado=BUTTON_RISING;  
+    break;
+    case BUTTON_UP:
+        if(!(ourButton.event))
+            ourButton.estado=BUTTON_FALLING;  
+    break;
+    case BUTTON_FALLING:
+        if(!(ourButton.event))
+        {
+            ourButton.timeDown=miTimer.read_ms();
+            ourButton.estado=BUTTON_DOWN;
+            //Flanco de bajada
+        }
+        else
+            ourButton.estado=BUTTON_UP;    
+    break;
+    case BUTTON_RISING:
+        if(ourButton.event){
+            ourButton.estado=BUTTON_UP;
+            //Flanco de Subida
+            ourButton.timeDiff=miTimer.read_ms()-ourButton.timeDown;
+            setModes();
+        }
+        else
+            ourButton.estado=BUTTON_DOWN;   
+    break;   
+    default:
+        startMef();
+        break;
+    }
 }
 
 void manejadorServo(void){
@@ -602,7 +638,9 @@ void echoProcces(void){
 }
 
 void manejadorMotor(uint16_t pulso){
-    
+    uint16_t startPulso=500;
+    uint8_t startSpeed = 2;
+
     switch (motor.select)
     {
     case mDer:
@@ -611,12 +649,18 @@ void manejadorMotor(uint16_t pulso){
         case mAtras:
             IN3 = HIGH;
             IN4 = LOW;
-            MotorDer.pulsewidth_us(pulso);
+            if (horquilla.speedM1 <= startSpeed)
+                MotorDer.pulsewidth_us(startPulso);
+            else
+                MotorDer.pulsewidth_us(pulso);
             break;
         case mAdelante:
             IN3 = LOW;
             IN4 = HIGH;
-            MotorDer.pulsewidth_us(pulso);
+            if (horquilla.speedM1 <= startSpeed)
+                MotorDer.pulsewidth_us(startPulso);
+            else
+                MotorDer.pulsewidth_us(pulso);
             break;
         default:
             break;
@@ -628,12 +672,18 @@ void manejadorMotor(uint16_t pulso){
         case mAtras:
             IN1 = LOW;
             IN2 = HIGH;
-            MotorIzq.pulsewidth_us(pulso);
+            if (horquilla.speedM2 <= startSpeed)
+                MotorIzq.pulsewidth_us(startPulso);
+            else
+                MotorIzq.pulsewidth_us(pulso);
             break;
         case mAdelante:
             IN1 = HIGH;
             IN2 = LOW;
-            MotorIzq.pulsewidth_us(pulso);
+            if (horquilla.speedM2 <= startSpeed)
+                MotorIzq.pulsewidth_us(startPulso);
+            else
+                MotorIzq.pulsewidth_us(pulso);
             break;
         default:
             break;
@@ -645,20 +695,32 @@ void manejadorMotor(uint16_t pulso){
         case mAtras:
             IN1 = LOW;
             IN2 = HIGH;
-            MotorIzq.pulsewidth_us(pulso);
+            if (horquilla.speedM2 <= startSpeed)
+                MotorIzq.pulsewidth_us(startPulso);
+            else
+                MotorIzq.pulsewidth_us(pulso);
 
             IN3 = HIGH;
             IN4 = LOW;
-            MotorDer.pulsewidth_us(pulso);
+            if (horquilla.speedM1 <= startSpeed)
+                MotorDer.pulsewidth_us(startPulso);
+            else
+                MotorDer.pulsewidth_us(pulso);
             break;
         case mAdelante:
             IN1 = HIGH;
             IN2 = LOW;
-            MotorIzq.pulsewidth_us(pulso);
+            if (horquilla.speedM2 <= startSpeed)
+                MotorIzq.pulsewidth_us(startPulso);
+            else
+                MotorIzq.pulsewidth_us(pulso);
             
             IN3 = LOW;
             IN4 = HIGH;
-            MotorDer.pulsewidth_us(pulso);
+            if (horquilla.speedM1 <= startSpeed)
+                MotorDer.pulsewidth_us(startPulso);
+            else
+                MotorDer.pulsewidth_us(pulso);
             break;
         default:
             break;
@@ -793,6 +855,7 @@ void setModes(void){
             //Entro en al ejecicion
             mode.isUsed = 1;
             servo.isUsed = 1;
+            servo.angulo = 0;
             encodeData(0x011); 
         }
     }else{
@@ -807,127 +870,6 @@ void setModes(void){
     }
 }
 
-void startMef(void){
-   ourButton.estado=BUTTON_UP;
-}
-
-void actuallizaMef(void){
-    switch (ourButton.estado)
-    {
-    case BUTTON_DOWN:
-        if(ourButton.event)
-           ourButton.estado=BUTTON_RISING;  
-    break;
-    case BUTTON_UP:
-        if(!(ourButton.event))
-            ourButton.estado=BUTTON_FALLING;  
-    break;
-    case BUTTON_FALLING:
-        if(!(ourButton.event))
-        {
-            ourButton.timeDown=miTimer.read_ms();
-            ourButton.estado=BUTTON_DOWN;
-            //Flanco de bajada
-        }
-        else
-            ourButton.estado=BUTTON_UP;    
-    break;
-    case BUTTON_RISING:
-        if(ourButton.event){
-            ourButton.estado=BUTTON_UP;
-            //Flanco de Subida
-            ourButton.timeDiff=miTimer.read_ms()-ourButton.timeDown;
-            setModes();
-        }
-        else
-            ourButton.estado=BUTTON_DOWN;   
-    break;   
-    default:
-        startMef();
-        break;
-    }
-}
-
-
-// void actuallizaMef(uint8_t indice){
-//     switch (ourButton[indice].estado)
-//     {
-//     case BUTTON_DOWN:
-//         if(ourButton[indice].event)
-//            ourButton[indice].estado=BUTTON_RISING;  
-//     break;
-//     case BUTTON_UP:
-//         if(!(ourButton[indice].event))
-//             ourButton[indice].estado=BUTTON_FALLING;  
-//     break;
-//     case BUTTON_FALLING:
-//         if(!(ourButton[indice].event))
-//         {
-//             ourButton[indice].timeDown=miTimer.read_ms();
-//             ourButton[indice].estado=BUTTON_DOWN;
-//             //Flanco de bajada
-//         }
-//         else
-//             ourButton[indice].estado=BUTTON_UP;    
-//     break;
-//     case BUTTON_RISING:
-//         if(ourButton[indice].event){
-//             ourButton[indice].estado=BUTTON_UP;
-//             //Flanco de Subida
-//             ourButton[indice].timeDiff=miTimer.read_ms()-ourButton[indice].timeDown;
-//             togleLed(indice);
-//         }
-//         else
-//             ourButton[indice].estado=BUTTON_DOWN;   
-//     break;   
-//     default:
-//     startMef(indice);
-//         break;
-//     }
-// }
-
-/*****************************************************************************************************/
-/************  Funciónes para manejar los LEDS ***********************/
-
-// void togleLed(uint8_t indice){
-//     uint16_t ledsAux=leds, auxmask=0;
-//     auxmask |= 1<<indice;
-//     if(auxmask & leds)
-//         ledsAux &= ~(1 << (indice)) ; 
-//     else
-//          ledsAux |= 1 << (indice) ;
-//     leds = ledsAux ;
-// }
-
-// void manejadorLed(uint8_t mask){
-//     uint16_t auxled=0, setLeds=0;
-//     auxled|=1<<3;
-//     if(auxled & mask)
-//         setLeds |= 1 <<3;
-//     else
-//         setLeds &= ~(1<<3);
-//     auxled=0;
-//     auxled|=1<<2;
-//     if(auxled & mask)
-//         setLeds |= 1 <<2;
-//     else
-//         setLeds &= ~(1<<2);
-//     auxled=0;
-//     auxled|=1<<1;
-//     if(auxled & mask)
-//         setLeds |= 1 <<1;
-//     else
-//         setLeds &= ~(1<<1);
-//     auxled=0;
-//     auxled|=1<<0;
-//     if(auxled & mask)
-//         setLeds |= 1 <<0;
-//     else
-//         setLeds &= ~(1<<0);
-
-//     leds=setLeds;
-// }
- 
 void decodeProtocol(void)
 {
     static int8_t nBytes=0, indice=0;
@@ -1201,28 +1143,6 @@ void sendData(void)
         }
 }
 
-// void hearbeatTask(void)
-// {
-//     if(hearBeatEvent < 2){
-//         HEARBEAT=!HEARBEAT;
-//         hearBeatEvent++;
-//     }else{
-//         HEARBEAT=1;
-//         hearBeatEvent = (hearBeatEvent>=30) ? (0) : (hearBeatEvent+1);    
-//     }
-// }
-
-// void ledToggle(void)
-// {
-//     if (mode.ledEvent < 2){
-//         HEARBEAT=!HEARBEAT;
-//         mode.ledEvent++;
-//     }else{
-//         HEARBEAT=1;
-//         mode.ledEvent = (mode.ledEvent>=30) ? (0) : (mode.ledEvent+1);
-//     }
-// }
-
 void onDataRx(void)
 {
     while (pcCom.readable())
@@ -1236,3 +1156,87 @@ void OnTimeOut(void)
     if(!myFlags.individualFlags.checkButtons)
         myFlags.individualFlags.checkButtons=true;
 }
+
+// void hearbeatTask(void)
+// {
+//     if(hearBeatEvent < 2){
+//         HEARBEAT=!HEARBEAT;
+//         hearBeatEvent++;
+//     }else{
+//         HEARBEAT=1;
+//         hearBeatEvent = (hearBeatEvent>=30) ? (0) : (hearBeatEvent+1);    
+//     }
+// }
+
+// void manejadorLed(uint8_t mask){
+//     uint16_t auxled=0, setLeds=0;
+//     auxled|=1<<3;
+//     if(auxled & mask)
+//         setLeds |= 1 <<3;
+//     else
+//         setLeds &= ~(1<<3);
+//     auxled=0;
+//     auxled|=1<<2;
+//     if(auxled & mask)
+//         setLeds |= 1 <<2;
+//     else
+//         setLeds &= ~(1<<2);
+//     auxled=0;
+//     auxled|=1<<1;
+//     if(auxled & mask)
+//         setLeds |= 1 <<1;
+//     else
+//         setLeds &= ~(1<<1);
+//     auxled=0;
+//     auxled|=1<<0;
+//     if(auxled & mask)
+//         setLeds |= 1 <<0;
+//     else
+//         setLeds &= ~(1<<0);
+
+// void togleLed(uint8_t indice){
+//     uint16_t ledsAux=leds, auxmask=0;
+//     auxmask |= 1<<indice;
+//     if(auxmask & leds)
+//         ledsAux &= ~(1 << (indice)) ; 
+//     else
+//          ledsAux |= 1 << (indice) ;
+//     leds = ledsAux ;
+// }
+
+// void actuallizaMef(uint8_t indice){
+//     switch (ourButton[indice].estado)
+//     {
+//     case BUTTON_DOWN:
+//         if(ourButton[indice].event)
+//            ourButton[indice].estado=BUTTON_RISING;  
+//     break;
+//     case BUTTON_UP:
+//         if(!(ourButton[indice].event))
+//             ourButton[indice].estado=BUTTON_FALLING;  
+//     break;
+//     case BUTTON_FALLING:
+//         if(!(ourButton[indice].event))
+//         {
+//             ourButton[indice].timeDown=miTimer.read_ms();
+//             ourButton[indice].estado=BUTTON_DOWN;
+//             //Flanco de bajada
+//         }
+//         else
+//             ourButton[indice].estado=BUTTON_UP;    
+//     break;
+//     case BUTTON_RISING:
+//         if(ourButton[indice].event){
+//             ourButton[indice].estado=BUTTON_UP;
+//             //Flanco de Subida
+//             ourButton[indice].timeDiff=miTimer.read_ms()-ourButton[indice].timeDown;
+//             togleLed(indice);
+//         }
+//         else
+//             ourButton[indice].estado=BUTTON_DOWN;   
+//     break;   
+//     default:
+//     startMef(indice);
+//         break;
+//     }
+// }
