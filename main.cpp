@@ -297,7 +297,7 @@ typedef struct{
     bool isUsed=0;                      //Habilita el llamado a la funcion manejarServo-
     int8_t angulo;                      //Angulo que llega desde PC
     int time;                           //Ultimo tiempo de accion
-    uint16_t interval=400;               //Intervalo de accion
+    uint16_t interval=400;              //Intervalo de accion
 }_sServo;
 _sServo servo;
 
@@ -355,18 +355,15 @@ typedef enum{
 typedef struct{
     bool isUsed=0;                      //0 no hay modo en ejecucion ---- 1 hay modo en ejecucion
     uint8_t actualMode;                 //Modo seleccionado actualmente
+    bool giroServo=0;                   //0 contador ascendente ---- 1 contador descendente
+    bool obstFound;                     //0 no encontrado ---- 1 encontrado
+    int8_t modeObsFound;
     int lastTime;
     uint8_t ledEvent;
 }_sModos;
 _sModos mode;
 
-typedef struct{
-    bool giroServo=0;                     //0 contador ascendente ---- 1 contador descendente
-}_sModo1;
-_sModo1 modo1;
-
-
-uint8_t firmwareVer = 0x16;
+uint8_t firmwareVer = 0x18;
 
 int main()
 {
@@ -486,15 +483,16 @@ int main()
 
         if (mode.isUsed) //Seteo de modos
         {
-            uint16_t pulsoFast;
-            uint16_t pulsoSlow;
+            uint16_t pulsoFast, pulsoSlow;
+            uint8_t valueIR;
+
             switch (mode.actualMode){
             case MODE1: //Modo de seguimiento del obstaculo
         
                 pulsoFast = 350;
                 pulsoSlow = 350;
                 // pulsoFast = 300;
-                if ((ultraS.echoTimeFall > 1450)){    //Si el obstaculo se encuentra a mas de 17
+                if ((ultraS.echoTimeFall > 1450)){      //Si el obstaculo se encuentra a mas de 17
                     IN1 = LOW;
                     IN2 = LOW;
                     IN3 = LOW;
@@ -504,18 +502,18 @@ int main()
                         servo.time = miTimer.read_ms();
 
                         if (servo.angulo >= 90)
-                            modo1.giroServo = 1;
+                            mode.giroServo = 1;
                         else if (servo.angulo <= -90)
-                            modo1.giroServo = 0;
+                            mode.giroServo = 0;
 
-                        if (modo1.giroServo)
+                        if (mode.giroServo)
                             servo.angulo -= 45;
                         else
                             servo.angulo += 45;
 
                         manejadorServo();
                     }
-                }else if (ultraS.echoTimeFall > 440)  //Si el obstaculo se aleja de 7
+                }else if (ultraS.echoTimeFall > 440)    //Si el obstaculo se aleja de 7
                 {
                     if (servo.angulo < 0){
                         motor.select = 0x01;
@@ -540,7 +538,7 @@ int main()
                         
                     }
                     
-                }else if (ultraS.echoTimeFall < 319){    //Si el obstaculo se acarca a 5
+                }else if (ultraS.echoTimeFall < 319){   //Si el obstaculo se acarca a 5
                     motor.select = 0x11;
                     motor.sentido = 0x01;
                     manejadorMotor(pulsoFast);
@@ -553,36 +551,245 @@ int main()
                 break;
             
             case MODE2:
-                pulsoFast = 350;
+                pulsoFast = 250;
                 pulsoSlow = 0;
-
-                if (ultraS.echoTimeFall < 406){
+                valueIR = 150;
+                if (ultraS.echoTimeFall < 400){         //Obstaculo encontrado
                     IN1 = LOW;
                     IN2 = LOW;
                     IN3 = LOW;
                     IN4 = LOW;
-                }else if (sensorIR.valueIRDer > 100){
-                    //Girar a la izquierda
-                    motor.select = 0x01;
-                    motor.sentido = 0x10;
-                    manejadorMotor(pulsoSlow);
-                }else if (sensorIR.valueIRIzq > 100)
-                {
-                    //Girar a la derecha
-                    motor.select = 0x10;
-                    motor.sentido = 0x10;
-                    manejadorMotor(pulsoSlow);
-                }else{
-                    //Mover recto
-                    motor.select = 0x11;
-                    motor.sentido = 0x10;
-                    manejadorMotor(pulsoFast);
+                    mode.obstFound = 1;
+
+                    if (!(mode.modeObsFound)){
+                        mode.modeObsFound = 1;
+                        mode.giroServo = 0;
+                    }
+                }else
+                    mode.obstFound = 0;
+                
+                if (!(mode.modeObsFound)){
+                    if ((sensorIR.valueIRDer > valueIR) && (sensorIR.valueIRIzq > valueIR)){  //Ambos sobre linea
+                        IN1 = LOW;
+                        IN2 = LOW;
+                        IN3 = LOW;
+                        IN4 = LOW;
+                    }else if (sensorIR.valueIRDer > valueIR){   //Girar a la izquierda
+                        motor.select = 0x01;
+                        motor.sentido = 0x01;
+                        manejadorMotor(pulsoSlow);
+
+                        motor.select = 0x10;
+                        motor.sentido = 0x10;
+                        manejadorMotor(pulsoFast);
+                    }else if (sensorIR.valueIRIzq > valueIR){   //Girar a la derecha
+                        motor.select = 0x10;
+                        motor.sentido = 0x01;
+                        manejadorMotor(pulsoSlow);
+
+                        motor.select = 0x01;
+                        motor.sentido = 0x10;
+                        manejadorMotor(pulsoFast);
+                    }else if (!(mode.obstFound)){               //Mover recto
+                            motor.select = 0x11;
+                            motor.sentido = 0x10;
+                            manejadorMotor(pulsoFast);
+                    }
                 }
+                
+                // if (mode.obstFound)
+                    switch (mode.modeObsFound)
+                    {
+                    case 1:
+                        if ((miTimer.read_ms()-servo.time)>=servo.interval){
+                            servo.time = miTimer.read_ms();
+                            // servo.angulo = 120;
+                            // manejadorServo();
+                            if (mode.obstFound){
+                                if (mode.giroServo){
+                                    servo.angulo = 120;
+                                    manejadorServo();
+                                    mode.giroServo = 0;
+                                }else{
+                                    servo.angulo = -100;
+                                    manejadorServo();
+                                    mode.giroServo = 1;
+                                }
+                            }else{
+                                mode.modeObsFound = 2;
+                                servo.time = miTimer.read_ms();
+                                if (mode.giroServo){
+                                    servo.angulo = 120;
+                                    manejadorServo();
+                                }else{
+                                    servo.angulo = -100;
+                                    manejadorServo();
+                                }
+                            }
+                        }
+                        break;
+                    
+                    case 2:
+                        pulsoFast = 500;
+                        motor.select = 0x01;
+                        motor.sentido = 0x01;
+                        manejadorMotor(pulsoFast);
+                        
+                        motor.select = 0x10;
+                        motor.sentido = 0x10;
+                        manejadorMotor(pulsoFast);
+                        
+                        if ((miTimer.read_ms()-servo.time)>=800){
+                            mode.modeObsFound = 3;
+                        }
+                        break;
+                    case 3:
+                        // if (mode.giroServo){    //1 sin obstaculo a la derecha ---- 0 sin obstaculo a la izquierda
+                        //     motor.select = 0x01;
+                        //     motor.sentido = 0x01;
+                        //     manejadorMotor(pulsoFast);
+                        //     motor.select = 0x10;
+                        //     motor.sentido = 0x10;
+                        //     manejadorMotor(pulsoFast);
+                        //     if ((miTimer.read_ms()-servo.time)>=servo.interval){
+                        //         servo.time = miTimer.read_ms();
+                        //         if (ultraS.echoTimeFall < 600){
+                        //             mode.modeObsFound = 3;
+                        //         }
+                        //     }
+                        // }else{
+                        //     motor.select = 0x01;
+                        //     motor.sentido = 0x10;
+                        //     manejadorMotor(pulsoFast);
+                        //     motor.select = 0x10;
+                        //     motor.sentido = 0x01;
+                        //     manejadorMotor(pulsoFast);
+                        //     if ((miTimer.read_ms()-servo.time)>=servo.interval){
+                        //         servo.time = miTimer.read_ms();
+                        //         if (ultraS.echoTimeFall < 600){
+                        //             mode.modeObsFound = 3;
+                        //         }
+                        //     }
+                        // }
+                        pulsoFast = 500;
+                        pulsoSlow = 200;
+                        if (mode.giroServo){        //1 sin obstaculo a la derecha ---- 0 sin obstaculo a la izquierda    
+                            
+                            if (ultraS.echoTimeFall > 1000){
+                                pulsoFast = 600;
+                                pulsoSlow = 150;
+                                motor.select = 0x01;
+                                motor.sentido = 0x10;
+                                manejadorMotor(pulsoFast);
+                                
+                                motor.select = 0x10;
+                                motor.sentido = 0x10;
+                                manejadorMotor(pulsoSlow);
+                            }else if (ultraS.echoTimeFall > 700){
+                                motor.select = 0x01;
+                                motor.sentido = 0x10;
+                                manejadorMotor(pulsoFast);
+                                
+                                motor.select = 0x10;
+                                motor.sentido = 0x10;
+                                manejadorMotor(pulsoSlow);
+                            }else{ //if (ultraS.echoTimeFall < 640)
+                                motor.select = 0x01;
+                                motor.sentido = 0x10;
+                                manejadorMotor(pulsoSlow);
+                                
+                                motor.select = 0x10;
+                                motor.sentido = 0x10;
+                                manejadorMotor(pulsoFast);
+                            }
+                            // else{
+                            //     motor.select = 0x11;
+                            //     motor.sentido = 0x10;
+                            //     manejadorMotor(pulsoFast);
+                            // }
+                            // if ((miTimer.read_ms()-servo.time)>=5000){
+                            //     servo.time = miTimer.read_ms();
+                            //     if (ultraS.echoTimeFall > 1400){
+                            //         mode.modeObsFound = 3;
+                            //     }
+                            // }
+                        }else{
+                            if (ultraS.echoTimeFall > 1000){
+                                pulsoFast = 600;
+                                pulsoSlow = 150;
+                                motor.select = 0x10;
+                                motor.sentido = 0x10;
+                                manejadorMotor(pulsoFast);
+                                
+                                motor.select = 0x01;
+                                motor.sentido = 0x10;
+                                manejadorMotor(pulsoSlow);
+                            }else if (ultraS.echoTimeFall > 700){
+                                motor.select = 0x10;
+                                motor.sentido = 0x10;
+                                manejadorMotor(pulsoFast);
+                                
+                                motor.select = 0x01;
+                                motor.sentido = 0x10;
+                                manejadorMotor(pulsoSlow);
+                            }else{ //if (ultraS.echoTimeFall < 640)
+                                motor.select = 0x10;
+                                motor.sentido = 0x10;
+                                manejadorMotor(pulsoSlow);
+                                
+                                motor.select = 0x01;
+                                motor.sentido = 0x10;
+                                manejadorMotor(pulsoFast);
+                            }
+                        }
+                        
+                        if ((sensorIR.valueIRDer > valueIR) || (sensorIR.valueIRIzq > valueIR)){
+                            servo.angulo = 0;
+                            manejadorServo();
+                            mode.modeObsFound = 4;
+                            servo.time = miTimer.read_ms();
+                        }
+                        break;
+                    
+                    case 4:
+                        pulsoFast = 300;
+                        pulsoSlow = 0;
+                        if (mode.giroServo){         //1 sin obstaculo a la derecha ---- 0 sin obstaculo a la izquierda
+                            motor.select = 0x10;
+                            motor.sentido = 0x10;
+                            manejadorMotor(pulsoFast);
+                            
+                            motor.select = 0x01;
+                            motor.sentido = 0x10;
+                            manejadorMotor(pulsoSlow);
+                        }else{
+                            motor.select = 0x01;
+                            motor.sentido = 0x10;
+                            manejadorMotor(pulsoFast);
+                            
+                            motor.select = 0x10;
+                            motor.sentido = 0x10;
+                            manejadorMotor(pulsoSlow);
+                        }
+                        if ((miTimer.read_ms()-servo.time)>=800){
+                            mode.modeObsFound = 0;
+                        }
+                        break;
+                    }
+                // }
+
                 
                 break;
 
             case MODE3:
+                pulsoFast = 500;
+                motor.select = 0x01;
+                motor.sentido = 0x01;
+                manejadorMotor(pulsoFast);
                 
+                motor.select = 0x10;
+                motor.sentido = 0x10;
+                manejadorMotor(pulsoFast);
                 break;
             }
         }
@@ -869,19 +1076,18 @@ void ledMode(void){
 void setModes(void){
     if (ourButton.timeDiff >= 1000)
     {
-        if (ourButton.timeDiff >= 2000)
-        {
-            //Salgo de la ejecucion
+        if (ourButton.timeDiff >= 2000){    //Salgo de la ejecucion
             mode.isUsed = 0;
             mode.actualMode = IDLE;
             IN1 = LOW;
             IN2 = LOW;
             IN3 = LOW;
             IN4 = LOW;
+            servo.angulo = 0;
+            manejadorServo();
 
             encodeData(0x011); 
-        }else{
-            //Entro en al ejecicion
+        }else{                              //Entro en al ejecicion
             mode.isUsed = 1;
             servo.isUsed = 1;
             servo.angulo = 0;
