@@ -833,9 +833,9 @@ int main()
                     if ((miTimer.read_ms()-mode.aux2)>=1000){
                         if (ultraS.echoTimeFall < 900){                 //Si encuentra obstaculo
                             if (mode.giroServo)
-                                mode.aux3 += 1;                       //Pared a la izquierda
+                                mode.aux3 |= 0x10;                       //Pared a la izquierda
                             else
-                                mode.aux3 += 2;                       //Pared a la derecha
+                                mode.aux3 |= 0x01;                       //Pared a la derecha
                         }
                         
                         if (mode.aux1 == 4){
@@ -849,17 +849,16 @@ int main()
                             mode.modeObsFound = 2;
                             servo.time = miTimer.read_ms();
                             
-                            if (mode.aux3 == 3){                     //Si hay dos posibles caminos elijo uno random
-                                // srand(time(NULL));
+                            if (mode.aux3 == 0x00){                     //Si hay dos posibles caminos elijo uno random
+                                srand(miTimer.read_us());
                                 mode.aux2 = rand() % 10;
                                 if (mode.aux2 >= 5)                  //1 elije camino de la izquierda
                                     mode.giroServo = 0;
-                                else if (mode.aux2 < 5)              //0 elije camono de la derecha
+                                else if (mode.aux2 < 5)              //0 elije camino de la derecha
                                     mode.giroServo = 1;
-
-                            }else if (mode.aux3 == 1){               //Si hay pared a la izquierda giro a la derecha
+                            }else if (mode.aux3 == 0x10){               //Si hay pared a la izquierda giro a la derecha
                                     mode.giroServo = 1;                             
-                            }else if (mode.aux3 == 2){               //Si hay pared a la derecha giro a la izquierda
+                            }else if (mode.aux3 == 0x01){               //Si hay pared a la derecha giro a la izquierda
                                     mode.giroServo = 0;
                             }
                         }
