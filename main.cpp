@@ -1,5 +1,6 @@
 #include "mbed.h"
 #include <stdbool.h>
+#include "wifi.h"
 
 #define NUMBUTT             4
 
@@ -8,6 +9,8 @@
 #define NUMBEAT             4
 
 #define HEARBEATINTERVAL    100
+
+#define RINGBUFFLENGTH      256
 
 #define HIGH                1
 #define LOW                 0
@@ -24,6 +27,8 @@ typedef enum{
     BUTTON_FALLING, //2
     BUTTON_RISING   //3
 }_eButtonState;
+
+wifiData myWifiData; ///////////////////// AGREGAR ///////////////////////////////////
 
 /**
  * @brief Enumeración de eventos del botón
@@ -83,6 +88,7 @@ _eProtocolo estadoProtocolo;
         SERVO_ACTION=0xA2,
         ULTRA_SONIC=0xA3,
         HORQUILLA=0xA4,
+        STARTCONFIG=0xEE,
         OTHERS
     }_eID;
 
@@ -92,6 +98,7 @@ _eProtocolo estadoProtocolo;
  */
 typedef struct{
     uint8_t timeOut;         //!< TiemOut para reiniciar la máquina si se interrumpe la comunicación
+    uint8_t indexStart; ///////////////////// AGREGAR ///////////////////////////////////
     uint8_t cheksumRx;       //!< Cheksumm RX
     uint8_t cheksumtx;       //!< Cheksumm Tx
     uint8_t indexWriteRx;    //!< Indice de escritura del buffer circular de recepción
@@ -100,10 +107,12 @@ typedef struct{
     uint8_t indexReadTx;     //!< Indice de lectura del buffer circular de transmisión
     uint8_t bufferRx[256];   //!< Buffer circular de recepción
     uint8_t bufferTx[256];   //!< Buffer circular de transmisión
-    uint8_t payload[32];     //!< Buffer para el Payload de datos recibidos
+    // uint8_t payload[32];     //!< Buffer para el Payload de datos recibidos
 }_sDato ;
 
-volatile _sDato datosComProtocol;
+_sDato datosComProtocol, datosComWifi;
+
+uint8_t globalPayload[30];
 /**
  * @brief VOLATILE 
  * 
@@ -195,13 +204,13 @@ void onDataRx(void);
  * La función decodifica el protocolo para saber si lo que llegó es válido.
  * Utiliza una máquina de estado para decodificar el paquete
  */
-void decodeProtocol(void);
+void decodeProtocol(_sDato *);
 
 /**
  * @brief Procesa el comando (ID) que se recibió
  * Si el protocolo es correcto, se llama a esta función para procesar el comando
  */
-void decodeData(void);
+void decodeData(_sDato *);
 
 void encodeData(uint8_t id);
 
@@ -210,6 +219,13 @@ void encodeData(uint8_t id);
  * La función consulta si el puerto serie está libra para escribir, si es así envía 1 byte y retorna
  */
 void sendData(void);
+
+/**
+ * @brief Envía los datos a la PC por WIFI
+ * 
+ */
+void sendDataWifi(void);
+
 
 /**
  * @brief Función que se llama con la interrupción del TICKER
@@ -251,6 +267,12 @@ void followTheLine(void);
 DigitalOut HEARBEAT(PC_13); //!< Defino la salida del led
 
 Serial pcCom(PA_9,PA_10,115200); //!< Configuración del puerto serie, la velocidad (115200) tiene que ser la misma en QT
+
+/**
+ * @brief Clase Wifi utilizada para configurar el ESP8266_01 y manejar la comunicación
+ * con el mismo 
+ */
+Wifi myWifi(datosComWifi.bufferRx,&datosComWifi.indexWriteRx, sizeof(datosComWifi.bufferRx));
 
 PwmOut Servo(PB_3);
 PwmOut MotorDer(PA_8);
@@ -372,12 +394,13 @@ typedef struct{
 }_sModos;
 _sModos mode;
 
-uint8_t firmwareVer = 0x1D;
+uint8_t firmwareVer = 0x1F;
 
 int main()
 {
     // int hearbeatTime=0;
     // uint32_t auxHorquillaDer=0, auxHorquillaIzq=0;
+    myWifi.initTask();
     miTimer.start();
     echoTimer.start();
 
@@ -417,6 +440,8 @@ int main()
 
     while(true)
     {
+        myWifi.taskWifi();
+
         if ((miTimer.read_ms()-ourButton.lastTime)>=ourButton.inerval)
         {
             ourButton.timeDiff=0;
@@ -631,7 +656,7 @@ int main()
                         manejadorMotor(pulsoFast);
                     }
                     
-                    if ((miTimer.read_ms()-servo.time)>=700){
+                    if ((miTimer.read_ms()-servo.time)>=600){
                         mode.modeObsFound = 3;
                     }
                     break;
@@ -735,52 +760,14 @@ int main()
 
             case MODE3:                                             //Modo de resolucion de laberinto
                 if (!(mode.modeObsFound)){                              //Algoritmo seguidor de linea
-
-                    // pulsoFast = 250;
-                    // pulsoSlow = 0;
-                    // if ((sensorIR.valueIRDer > valueIR) && (sensorIR.valueIRIzq > valueIR)){  //Ambos sobre linea
-                    //     IN1 = LOW;
-                    //     IN2 = LOW;
-                    //     IN3 = LOW;
-                    //     IN4 = LOW;
-                    //     mode.modeObsFound = 2;
-                    //     mode.giroServo = 0;
-                    //     mode.aux1 = 1;
-                    //     mode.aux2 = 0;
-                    //     mode.aux3 = 0;
-                    // }else if (sensorIR.valueIRDer > valueIR){   //Girar a la izquierda
-                    //     motor.select = 0x01;
-                    //     motor.sentido = 0x01;
-                    //     manejadorMotor(pulsoSlow);
-                    //     motor.select = 0x10;
-                    //     motor.sentido = 0x10;
-                    //     manejadorMotor(pulsoFast);
-                    // }else if (sensorIR.valueIRIzq > valueIR){   //Girar a la derecha
-                    //     motor.select = 0x10;
-                    //     motor.sentido = 0x01;
-                    //     manejadorMotor(pulsoSlow);
-                    //     motor.select = 0x01;
-                    //     motor.sentido = 0x10;
-                    //     manejadorMotor(pulsoFast);
-                    // }else if (!(mode.obstFound)){               //Mover recto
-                    //         motor.select = 0x11;
-                    //         motor.sentido = 0x10;
-                    //         manejadorMotor(pulsoFast);
-                    // }
                     followTheLine();
-                    // if ((sensorIR.valueIRDer > valueIR) && (sensorIR.valueIRIzq > valueIR)){  //Ambos sobre linea
-                    //     mode.modeObsFound = 2;
-                    //     mode.giroServo = 0;
-                    //     mode.aux1 = 1;
-                    //     mode.aux2 = 0;
-                    //     mode.aux3 = 0;
-                    // }
                     if (mode.obstFound){
                         if (!(mode.modeObsFound)){
                             mode.modeObsFound = 1;
                             mode.giroServo = 0;
                             mode.aux1 = 1;
                             mode.aux2 = miTimer.read_ms();
+                            mode.aux3 = 0x00;
                         }
                     }
                 }
@@ -790,49 +777,44 @@ int main()
                 case 1:
                     if ((miTimer.read_ms()-mode.aux2)>=1000){
                         mode.aux1++;
-                        if (ultraS.echoTimeFall > 1740){                //Si el obstaculo está a más de 30cm
-                            //end function
-                        }else if (ultraS.echoTimeFall < 1740){          //Si el obstaculo está a menos de 20cm
-                            if (mode.aux1 == 1)
+                        if (ultraS.echoTimeFall < 1740){          //Si el obstaculo está a menos de 20cm
+                            if (mode.aux1 == 2)
                                 mode.aux3 |= 0x02;    //mode.aux3 |= 0b0010;
-                            else if (mode.aux1 == 3)
+                            else if (mode.aux1 == 4)
                                 mode.aux3 |= 0x04;    //mode.aux3 |= 0b0100;
-                            else if (mode.aux1 == 5)
+                            else if (mode.aux1 == 6)
                                 mode.aux3 |= 0x01;    //mode.aux3 |= 0b0001;
                         }
 
-                        if (mode.aux1 > 4){
+                        if (mode.aux1 == 6){
                             mode.modeObsFound = 2;
                             srand(miTimer.read_us());
                             mode.aux2 = rand() % 2;
-                            if (mode.aux3 && 0x02){//0b0010                    //Si hay muro adelante
-
-                                if (mode.aux3 && 0x02){//0b0010                  //No hay muro a los lados
-                                    if (mode.aux2)
-                                        mode.giroServo = 1;             //Giro a la derecha
-                                    else
-                                        mode.giroServo = 0;             //Giro a la izquierda
-
-                                }else if (mode.aux3 && 0x04)//0b0100           //Si hay muro a la izquierda
-                                    mode.giroServo = 1;
-                                else if (mode.aux3 && 0x01)//0b0001            //Si hay muro a la derecha
-                                    mode.giroServo = 0;
-
-                            }else{//if (mode.aux1 & 0b0000)              //No hay muro adelante
-
-                                if (mode.aux3 && 0x04){//0b0100                //Hay muro a la izquierda
-                                    if (mode.aux2)
-                                        mode.giroServo = 1;             //Giro a la derecha
-                                    else
-                                        mode.giroServo = 2;             //Sigo derecho
-
-                                }else if (mode.aux3 && 0x01){//0b0001          //Hay muro a la derecha
-                                    if (mode.aux2)
-                                        mode.giroServo = 0;             //Giro a la izquierda
-                                    else
-                                        mode.giroServo = 2;             //Sigo derecho
-                                }
+                            
+                            if (mode.aux3 == 0x00){         //Llego al final
+                                mode.modeObsFound = 3;
+                                servo.time = miTimer.read_ms();
+                            }else if (mode.aux3 == 0x06){   //Giro a la izquierda
+                                mode.giroServo = 1;
+                            }else if (mode.aux3 == 0x03){ //Giro a la derecha
+                                mode.giroServo = 0;
+                            }else if (mode.aux3 == 0x01){ //Elijo derecho o izq
+                                if (mode.aux2)
+                                    mode.giroServo = 2;             //Sigo derecho
+                                else
+                                    mode.giroServo = 0;             //Giro izquierda
+                            }else if (mode.aux3 == 0x04){ //Elijo derecho o der
+                                if (mode.aux2)
+                                    mode.giroServo = 2;             //Sigo derecho
+                                else
+                                    mode.giroServo = 1;             //Giro derecha
+                            }else if (mode.aux3 == 0x02){ //Elijo der o izq
+                                if (mode.aux2)
+                                    mode.giroServo = 0;             //Giro derecho
+                                else
+                                    mode.giroServo = 1;             //Giro izquierda
                             }
+
                             servo.time = miTimer.read_ms();
                         }
                     }
@@ -856,33 +838,45 @@ int main()
                     break;
                 
                 case 2:
-                    if (mode.giroServo == 0){                           //Gira a la izquierda
+
+                    if ((miTimer.read_ms()-servo.time)>=300){
                         pulsoFast = 500;
-                        motor.select = 0x01;
-                        motor.sentido = 0x10;
-                        manejadorMotor(pulsoFast);
-                        
-                        motor.select = 0x10;
-                        motor.sentido = 0x01;
-                        manejadorMotor(pulsoFast);
-                    }else if (mode.giroServo == 1){                     //Gira a la derecha
-                        pulsoFast = 500;
-                        motor.select = 0x01;
-                        motor.sentido = 0x01;
-                        manejadorMotor(pulsoFast);
-                        
-                        motor.select = 0x10;
-                        motor.sentido = 0x10;
-                        manejadorMotor(pulsoFast);
-                    }else if (mode.giroServo == 2){                     //Sigo derecho
-                        pulsoFast = 500;
-                        motor.select = 0x01;
-                        motor.sentido = 0x10;
-                        manejadorMotor(pulsoFast);
-                        
-                        motor.select = 0x10;
-                        motor.sentido = 0x10;
-                        manejadorMotor(pulsoFast);
+                            motor.select = 0x01;
+                            motor.sentido = 0x10;
+                            manejadorMotor(pulsoFast);
+                            
+                            motor.select = 0x10;
+                            motor.sentido = 0x10;
+                            manejadorMotor(pulsoFast);
+                    }else{
+                        if (mode.giroServo == 0){                           //Gira a la derecha
+                            pulsoFast = 500;
+                            motor.select = 0x01;
+                            motor.sentido = 0x10;
+                            manejadorMotor(pulsoFast);
+                            
+                            motor.select = 0x10;
+                            motor.sentido = 0x01;
+                            manejadorMotor(pulsoFast);
+                        }else if (mode.giroServo == 1){                     //Gira a la izquierda
+                            pulsoFast = 500;
+                            motor.select = 0x01;
+                            motor.sentido = 0x01;
+                            manejadorMotor(pulsoFast);
+                            
+                            motor.select = 0x10;
+                            motor.sentido = 0x10;
+                            manejadorMotor(pulsoFast);
+                        }else if (mode.giroServo == 2){                     //Sigo derecho
+                            pulsoFast = 500;
+                            motor.select = 0x01;
+                            motor.sentido = 0x10;
+                            manejadorMotor(pulsoFast);
+                            
+                            motor.select = 0x10;
+                            motor.sentido = 0x10;
+                            manejadorMotor(pulsoFast);
+                        }
                     }
                     
                     if ((miTimer.read_ms()-servo.time)>=600){
@@ -895,6 +889,27 @@ int main()
                         manejadorServo();
                     }
                     break;
+                
+                case 3:
+                    pulsoFast = 500;
+                    motor.select = 0x01;
+                    motor.sentido = 0x01;
+                    manejadorMotor(pulsoFast);
+                    
+                    motor.select = 0x10;
+                    motor.sentido = 0x10;
+                    manejadorMotor(pulsoFast);
+                    
+                    if ((miTimer.read_ms()-servo.time)>=1000){
+                        mode.modeObsFound = 0;
+                        mode.giroServo = 0;
+                        mode.aux1 = 0;
+                        mode.aux2 = 0;
+                        mode.aux3 = 0;
+                        servo.angulo = 0;
+                        manejadorServo();
+                    }
+                    break;
                 }
                 
                 
@@ -903,17 +918,20 @@ int main()
         }
         
         if(datosComProtocol.indexReadRx!=datosComProtocol.indexWriteRx) 
-            decodeProtocol();
+            decodeProtocol(&datosComProtocol);
 
         if(datosComProtocol.indexReadTx!=datosComProtocol.indexWriteTx) 
             sendData();
+
+        if(datosComWifi.indexReadTx!=datosComWifi.indexWriteTx)
+            sendDataWifi();
     }
     return 0;
 }
 
 void followTheLine(void){
-    uint16_t pulsoFast = 500;
-    uint16_t pulsoSlow = 500;
+    uint16_t pulsoFast = 450;
+    uint16_t pulsoSlow = 450;
 
     if ((sensorIR.valueIRDer > sensorIR.valueIR) && (sensorIR.valueIRIzq > sensorIR.valueIR)){  //Ambos sobre linea
         // mode.aux1 = 0x00;
@@ -1164,7 +1182,7 @@ void contHorquillaIzq(void){
 
 void ledMode(void){
     // HEARBEAT =! HEARBEAT;
-    // encodeData(0x11);
+    encodeData(0x11);
     if (mode.isUsed)
     {
         switch (mode.actualMode)
@@ -1292,74 +1310,75 @@ void setModes(void){
     }
 }
 
-void decodeProtocol(void)
+void decodeProtocol(_sDato *datosCom)
 {
-    static int8_t nBytes=0, indice=0;
-    while (datosComProtocol.indexReadRx!=datosComProtocol.indexWriteRx)
+    static uint8_t nBytes=0;// indice=0;
+    while (datosCom->indexReadRx!=datosCom->indexWriteRx)
     {
         switch (estadoProtocolo) {
             case START:
-                if (datosComProtocol.bufferRx[datosComProtocol.indexReadRx++]=='U'){
+                if (datosCom->bufferRx[datosCom->indexReadRx++]=='U'){
                     estadoProtocolo=HEADER_1;
-                    datosComProtocol.cheksumRx=0;
+                    datosCom->cheksumRx=0;
                 }
                 break;
             case HEADER_1:
-                if (datosComProtocol.bufferRx[datosComProtocol.indexReadRx++]=='N')
+                if (datosCom->bufferRx[datosCom->indexReadRx++]=='N')
                    {
                        estadoProtocolo=HEADER_2;
                    }
                 else{
-                    datosComProtocol.indexReadRx--;
+                    datosCom->indexReadRx--;
                     estadoProtocolo=START;
                 }
                 break;
             case HEADER_2:
-                if (datosComProtocol.bufferRx[datosComProtocol.indexReadRx++]=='E')
+                if (datosCom->bufferRx[datosCom->indexReadRx++]=='E')
                 {
                     estadoProtocolo=HEADER_3;
                 }
                 else{
-                    datosComProtocol.indexReadRx--;
+                    datosCom->indexReadRx--;
                    estadoProtocolo=START;
                 }
                 break;
         case HEADER_3:
-            if (datosComProtocol.bufferRx[datosComProtocol.indexReadRx++]=='R')
+            if (datosCom->bufferRx[datosCom->indexReadRx++]=='R')
                 {
                     estadoProtocolo=NBYTES;
                 }
             else{
-                datosComProtocol.indexReadRx--;
+                datosCom->indexReadRx--;
                estadoProtocolo=START;
             }
             break;
             case NBYTES:
-                nBytes=datosComProtocol.bufferRx[datosComProtocol.indexReadRx++];
+                datosCom->indexStart=datosCom->indexReadRx; ///////////////////// AGREGAR ///////////////////////////////////
+                nBytes=datosCom->bufferRx[datosCom->indexReadRx++];
                estadoProtocolo=TOKEN;
                 break;
             case TOKEN:
-                if (datosComProtocol.bufferRx[datosComProtocol.indexReadRx++]==':'){
+                if (datosCom->bufferRx[datosCom->indexReadRx++]==':'){
                    estadoProtocolo=PAYLOAD;
-                    datosComProtocol.cheksumRx ='U'^'N'^'E'^'R'^ nBytes^':';
-                    datosComProtocol.payload[0]=nBytes;
-                    indice=1;
+                    datosCom->cheksumRx ='U'^'N'^'E'^'R'^ nBytes^':';
+                    // datosCom->payload[0]=nBytes;
+                    // indice=1;
                 }
                 else{
-                    datosComProtocol.indexReadRx--;
+                    datosCom->indexReadRx--;
                     estadoProtocolo=START;
                 }
                 break;
             case PAYLOAD:
                 if (nBytes>1){
-                    datosComProtocol.payload[indice++]=datosComProtocol.bufferRx[datosComProtocol.indexReadRx];
-                    datosComProtocol.cheksumRx ^= datosComProtocol.bufferRx[datosComProtocol.indexReadRx++];
+                    // datosCom->payload[indice++]=datosCom->bufferRx[datosCom->indexReadRx];
+                    datosCom->cheksumRx ^= datosCom->bufferRx[datosCom->indexReadRx++];
                 }
                 nBytes--;
                 if(nBytes<=0){
                     estadoProtocolo=START;
-                    if(datosComProtocol.cheksumRx == datosComProtocol.bufferRx[datosComProtocol.indexReadRx]){
-                        decodeData();
+                    if(datosCom->cheksumRx == datosCom->bufferRx[datosCom->indexReadRx]){
+                        decodeData(datosCom);
                     }
                 }
                 break;
@@ -1372,9 +1391,13 @@ void decodeProtocol(void)
 
 }
 
-void decodeData(void)
+void decodeData(_sDato *datosCom)
 {
-    uint8_t auxBuffTx[50], indiceAux=0, cheksum;
+    #define POSID   2
+    #define POSDATA 3
+    wifiData *wifidataPtr;///////////////////// AGREGAR ///////////////////////////////////
+    uint8_t *ptr; ///////////////////// AGREGAR ///////////////////////////////////
+    uint8_t auxBuffTx[50], indiceAux=0, cheksum, sizeWifiData, indexBytesToCopy=0, numBytesToCopy=0;
     auxBuffTx[indiceAux++]='U';
     auxBuffTx[indiceAux++]='N';
     auxBuffTx[indiceAux++]='E';
@@ -1382,7 +1405,26 @@ void decodeData(void)
     auxBuffTx[indiceAux++]=0;
     auxBuffTx[indiceAux++]=':';
 
-    switch (datosComProtocol.payload[1]) {
+    switch (datosCom->bufferRx[datosCom->indexStart+POSID]){
+        case STARTCONFIG: //Inicia Configuración del wifi 
+            sizeWifiData =sizeof(myWifiData);
+            indexBytesToCopy=datosCom->indexStart+POSDATA;
+            wifidataPtr=&myWifiData;
+
+            if ((RINGBUFFLENGTH - indexBytesToCopy)<sizeWifiData){
+                numBytesToCopy=RINGBUFFLENGTH-indexBytesToCopy;
+                memcpy(wifidataPtr,&datosCom->bufferRx[indexBytesToCopy], numBytesToCopy);
+                indexBytesToCopy+=numBytesToCopy;
+                sizeWifiData-=numBytesToCopy;
+                ptr= (uint8_t *)wifidataPtr + numBytesToCopy;
+                memcpy(ptr,&datosCom->bufferRx[indexBytesToCopy], sizeWifiData);
+            }else{
+                memcpy(&myWifiData,&datosCom->bufferRx[indexBytesToCopy], sizeWifiData);
+            }
+            myWifi.configWifi(&myWifiData);
+            ///////////////////// AGREGAR FIN ///////////////////////////////////
+            break;
+        
         case FIRMWARE:
             auxBuffTx[indiceAux++]=FIRMWARE;
             auxBuffTx[indiceAux++]=firmwareVer;
@@ -1414,11 +1456,11 @@ void decodeData(void)
             auxBuffTx[NBYTES]=0x03;
             
             motor.isUsed = 1;
-            motor.select = datosComProtocol.payload[2];
-            motor.sentido = datosComProtocol.payload[3];
+            motor.select = datosCom->bufferRx[datosCom->indexStart+3];
+            motor.sentido = datosCom->bufferRx[datosCom->indexStart+4];
 
-            myWord.ui8[0] = datosComProtocol.payload[4];
-            myWord.ui8[1] = datosComProtocol.payload[5];
+            myWord.ui8[0] = datosCom->bufferRx[datosCom->indexStart+5];
+            myWord.ui8[1] = datosCom->bufferRx[datosCom->indexStart+6];
 
             motor.interval = myWord.ui32;
             //motor.interval = 2000;
@@ -1432,7 +1474,7 @@ void decodeData(void)
             auxBuffTx[indiceAux++]=ACK;
             auxBuffTx[NBYTES]=0x03;
             
-            servo.angulo = datosComProtocol.payload[2];
+            servo.angulo = datosCom->bufferRx[datosCom->indexStart+3];
 
             // servo.isUsed = 1;
             // servo.time = miTimer.read_ms();
@@ -1475,9 +1517,9 @@ void decodeData(void)
    for(uint8_t a=0 ;a < indiceAux ;a++)
    {
        cheksum ^= auxBuffTx[a];
-       datosComProtocol.bufferTx[datosComProtocol.indexWriteTx++]=auxBuffTx[a];
+       datosCom->bufferTx[datosComProtocol.indexWriteTx++]=auxBuffTx[a];
    }
-    datosComProtocol.bufferTx[datosComProtocol.indexWriteTx++]=cheksum;
+       datosCom->bufferTx[datosComProtocol.indexWriteTx++]=cheksum;
 }
 
 void encodeData(uint8_t id){
@@ -1563,6 +1605,28 @@ void sendData(void)
         {
             pcCom.putc(datosComProtocol.bufferTx[datosComProtocol.indexReadTx++]);
         }
+}
+
+void sendDataWifi()
+{
+    uint8_t numbytes;
+    uint8_t *buff;
+    
+    if(datosComWifi.indexReadTx > datosComWifi.indexWriteTx)
+        numbytes= datosComWifi.indexWriteTx - datosComWifi.indexReadTx + 0xFF;
+    else
+        numbytes= datosComWifi.indexWriteTx -datosComWifi.indexReadTx;
+
+    buff = (uint8_t*)malloc(numbytes);
+    
+    if(buff!=NULL){
+        for(uint8_t i=0; i<numbytes; i++)
+            buff[i]= datosComWifi.bufferTx[datosComWifi.indexReadTx++];
+        
+        myWifi.writeWifiData(buff,numbytes);
+        
+        free(buff);
+    }
 }
 
 void onDataRx(void)

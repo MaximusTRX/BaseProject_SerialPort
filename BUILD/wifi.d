@@ -1,6 +1,8 @@
-main.o: \
- D:/Facultad/Practicas_Compu_3/Ejercicios/STM32/BaseProject_SerialPort/main.cpp \
- .././mbed_config.h ../mbed/mbed.h ../mbed/platform/mbed_version.h \
+wifi.o: \
+ D:/Facultad/Practicas_Compu_3/Ejercicios/STM32/BaseProject_SerialPort/wifi.cpp \
+ .././mbed_config.h \
+ D:/Facultad/Practicas_Compu_3/Ejercicios/STM32/BaseProject_SerialPort/wifi.h \
+ ../mbed/mbed.h ../mbed/platform/mbed_version.h \
  ../mbed/platform/mbed_toolchain.h ../mbed/platform/mbed_preprocessor.h \
  ../mbed/platform/platform.h ../mbed/platform/mbed_retarget.h \
  ../mbed/platform/mbed_toolchain.h \
@@ -121,5 +123,4 @@ main.o: \
  ../mbed/platform/ScopedRomWriteLock.h ../mbed/platform/mbed_mpu_mgmt.h \
  ../mbed/hal/mpu_api.h ../mbed/platform/ScopedRamExecutionLock.h \
  ../mbed/platform/mbed_stats.h ../mbed/platform/Callback.h \
- ../mbed/platform/FunctionPointer.h ../mbed/platform/ScopedLock.h \
- D:/Facultad/Practicas_Compu_3/Ejercicios/STM32/BaseProject_SerialPort/wifi.h
+ ../mbed/platform/FunctionPointer.h ../mbed/platform/ScopedLock.h

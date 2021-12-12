@@ -61,7 +61,7 @@ PROJECT := ProjectOut
 ###############################################################################
 # Objects and Paths
 
-OBJECTS += main.o
+OBJECTS += main.o wifi.o
 
  SYS_OBJECTS += mbed/TARGET_NUCLEO_F103RB/TOOLCHAIN_GCC_ARM/PeripheralPins.o
  SYS_OBJECTS += mbed/TARGET_NUCLEO_F103RB/TOOLCHAIN_GCC_ARM/analogin_api.o
