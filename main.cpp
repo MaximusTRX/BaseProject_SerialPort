@@ -369,7 +369,7 @@ typedef struct {
     uint16_t valueIRDer;                //Valor del Infrarrojo Derecho
     uint16_t interval=100;              //Intervalo para mandar datos a Qt
     int timer;
-    uint8_t valueIR = 30;              //Sensibilidad del sensor. 30 blanco ---- 250 negro completo
+    uint16_t valueIR = 30;              //Sensibilidad del sensor. 30 blanco ---- 250 negro completo
 }_sIRSensor;
 _sIRSensor sensorIR;
 
@@ -775,9 +775,13 @@ int main()
                 switch (mode.modeObsFound)
                 {
                 case 1:
+                            IN1=1;
+                            IN2=1;
+                            IN3=1;
+                            IN4=1;
                     if ((miTimer.read_ms()-mode.aux2)>=1000){
                         mode.aux1++;
-                        if (ultraS.echoTimeFall < 1740){          //Si el obstaculo está a menos de 20cm
+                        if (ultraS.echoTimeFall < 1740){          //Si el obstaculo está a menos de 30cm
                             if (mode.aux1 == 2)
                                 mode.aux3 |= 0x02;    //mode.aux3 |= 0b0010;
                             else if (mode.aux1 == 4)
@@ -839,8 +843,8 @@ int main()
                 
                 case 2:
 
-                    if ((miTimer.read_ms()-servo.time)>=300){
-                        pulsoFast = 500;
+                    if ((miTimer.read_ms()-servo.time)>=400){
+                        pulsoFast = 300;
                             motor.select = 0x01;
                             motor.sentido = 0x10;
                             manejadorMotor(pulsoFast);
@@ -930,8 +934,8 @@ int main()
 }
 
 void followTheLine(void){
-    uint16_t pulsoFast = 450;
-    uint16_t pulsoSlow = 450;
+    uint16_t pulsoFast = 350;
+    uint16_t pulsoSlow = 350;
 
     if ((sensorIR.valueIRDer > sensorIR.valueIR) && (sensorIR.valueIRIzq > sensorIR.valueIR)){  //Ambos sobre linea
         // mode.aux1 = 0x00;
