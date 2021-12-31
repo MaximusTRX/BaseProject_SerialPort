@@ -973,7 +973,6 @@ void followTheLine(void){
         motor.sentido = 0x10;
         manejadorMotor(pulsoFast);
     }
-
     // if (mode.aux1 == 0x00){
     //     IN1 = LOW;
     //     IN2 = LOW;
